@@ -1,107 +1,144 @@
-from flask import Flask, jsonify, request
+from flask import Flask, request, jsonify
 from flask_mysqldb import MySQL
-import requests
 from datetime import datetime
 
-app=Flask(__name__)
+app = Flask(__name__)
 
-# ### CONNECT DATABASE -- database can be access from the folder
-app.config['MYSQL_HOST'] = 'localhost'
-app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = ''
-app.config['MYSQL_DB'] = 'vacay'
-app.config['MYSQL_PORT'] = 3308
-mysql=MySQL(app)
+
+# ### CONNECT DATABASE -- database used = aiven
+app.config['MYSQL_HOST'] = 'mysql-c147a8b-student-ac4a.a.aivencloud.com'
+app.config['MYSQL_USER'] = 'avnadmin'
+app.config['MYSQL_PASSWORD'] = 'AVNS_IARwEPGR3sTvpRQ18Gf'
+app.config['MYSQL_DB'] = 'Tugas2_EAI'
+app.config['MYSQL_PORT'] = 10163 
+mysql = MySQL(app)
+
+
+
+# ### Authentication Logic
+valid_tokens = {"valid": "justin"}
+def verify_token(token):
+    return token == valid_tokens['valid']
+
+@app.before_request
+def authenticate():
+    token = request.headers.get('Authorization')
+    if not token or not verify_token(token):
+        return jsonify({"status_code": "401","status": "error", "message": "Unauthorized", "timestamp": datetime.now()}), 401
+
 
 @app.route('/')
-def root():
-    return "Cari Penerbanganmu di Proyek Vacay"
+def method_name():
+    return jsonify("Search for Your Flights Here!")
+
+
+# first endpoint
+### DAFTAR PENERBANGAN -- GET method --
+@app.route('/flights', methods=['GET'])
+def get_flights():
+    airline_name = request.args.get('airline_name')
+    cursor = mysql.connection.cursor()
+    query = '''
+        SELECT flights.flight_id, flights.flight_number, airlines.airline_name, departure_airport.airport_name AS departure_airport, departure_airport.city AS departure_city, departure_airport.country AS departure_country, arrival_airport.airport_name AS arrival_airport, arrival_airport.city AS arrival_city, arrival_airport.country AS arrival_country, flights.departure_time, flights.arrival_time, flights.fare 
+        FROM flights 
+        INNER JOIN airports AS departure_airport ON flights.departure_airport_code = departure_airport.airport_code 
+        INNER JOIN airports AS arrival_airport ON flights.arrival_airport_code = arrival_airport.airport_code 
+        INNER JOIN airlines ON flights.airline_id = airlines.airline_id
+    '''
+    ## filter data with airline_name
+    if airline_name:
+        query += ' WHERE airlines.airline_name = %s'
+        cursor.execute(query, (airline_name,))
+    
+    ## show all data
+    else:
+        cursor.execute(query)
+    
+    column_names = [i[0] for i in cursor.description]
+    data = [dict(zip(column_names, row)) for row in cursor.fetchall()]
+    cursor.close()
+    return jsonify({"status_code": "200", "status": "success", "message": "Data retrieved successfully", "timestamp": datetime.now(), "data": data}), 200
 
 
 
-@app.route('/flights_info', methods = ['GET', 'POST', 'PUT', 'DELETE'])
-# ### DAFTAR PENERBANGAN -- GET method --
-def flights_info():
-    if request.method == 'GET':
-        cursor = mysql.connection.cursor()
-        cursor.execute('SELECT * FROM flights')
-        column_names=[i[0] for i in cursor.description]
-        data=[]
-        for row in cursor.fetchall():
-            data.append(dict(zip(column_names,row)))
-
-        return jsonify(data)
-        cursor.close()
-
-
-
-# ### TAMBAH PENERBANGAN -- POST method --
-    elif request.method == 'POST':
-        flight_code = request.json['flight_code']
-        keberangkatan = request.json['keberangkatan']
-        maskapai = request.json['maskapai']
-        departure = request.json['departure']
-        destinasi = request.json['destinasi']
-        transit = request.json['transit']
-
-        keberangkatan_datetime = datetime.strptime(keberangkatan, '%a, %d %b %Y %H:%M:%S %Z')
-
-        cursor = mysql.connection.cursor()
-        val = (flight_code, keberangkatan_datetime, maskapai, departure, destinasi, transit)
-        cursor.execute('INSERT INTO flights (flight_code, keberangkatan, maskapai, departure, destinasi, transit) VALUES (%s, %s, %s, %s, %s, %s)', val)
-
-        mysql.connection.commit()
-        return jsonify({'message': 'new flight has been successfully added'})
-        cursor.close()
+# second endpoint
+### TAMBAH PENERBANGAN -- POST method --
+@app.route('/addFlights', methods=['POST'])
+def add_flight():
+    data = request.json
+    cursor = mysql.connection.cursor()
+    query = '''INSERT INTO flights (flight_number, airline_id, departure_airport_code, arrival_airport_code, departure_time, arrival_time, fare)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            '''
+    values = (data['flight_number'], data['airline_id'], data['departure_airport_code'], data['arrival_airport_code'], data['departure_time'], data['arrival_time'], data['fare'])
+    cursor.execute(query, values)
+    mysql.connection.commit()
+    cursor.close()
+    return jsonify({"status_code": "201","status": "add success", "message": "Flight added successfully", "timestamp": datetime.now()}), 201
 
 
 
-# ### EDIT PENERBANGAN -- PUT method --
-    elif request.method == 'PUT':
-        if 'id' in request.args:
-            data = request.get_json()
-
-            keberangkatan_datetime = datetime.strptime(data['keberangkatan'], '%a, %d %b %Y %H:%M:%S %Z')
-
-            cursor = mysql.connection.cursor()
-            val = (data['flight_code'], keberangkatan_datetime, data['maskapai'], data['departure'], data['destinasi'], data['transit'], request.args['id'])
-            cursor.execute('UPDATE flights SET flight_code = %s, keberangkatan = %s, maskapai = %s, departure = %s, destinasi = %s, transit = %s WHERE flight_id = %s', val)
-
-            mysql.connection.commit()
-            cursor.close()
-            return jsonify({'message': 'flight detail has been updated'})
-
-
-
-# ### HAPUS PENERBANGAN -- DELETE method --
-    elif request.method == 'DELETE':
-        if'id' in request.args:
-            cursor = mysql.connection.cursor()
-            val = (request.args['id'],)
-            cursor.execute('DELETE FROM flights WHERE flight_id = %s',val)
-
-            mysql.connection.commit()
-            return jsonify({'message': 'flight has been deleted'})
-            cursor.close()
+# third endpoint
+### EDIT PENERBANGAN -- PUT method --
+@app.route('/updateFlights/<int:flight_id>', methods=['PUT'])
+def update_flight(flight_id):
+    data = request.json
+    cursor = mysql.connection.cursor()
+    query = '''UPDATE flights
+            SET flight_number = %s, airline_id = %s, departure_airport_code = %s, arrival_airport_code = %s, departure_time = %s, arrival_time = %s, fare = %s
+            WHERE flight_id = %s
+            '''
+    values = (data['flight_number'], data['airline_id'], data['departure_airport_code'], data['arrival_airport_code'], data['departure_time'], data['arrival_time'], data['fare'], flight_id)
+    cursor.execute(query, values)
+    mysql.connection.commit()
+    cursor.close()
+    return jsonify({"status_code": "200","status": "success", "message": "Flight updated successfully", "timestamp": datetime.now()}), 200
 
 
 
-# ### DETAIL PENERBANGAN -- GET method --
-@app.route('/flights_detail', methods = ['GET'])
-def flights_detail():
-    if 'id' in request.args:
-        cursor = mysql.connection.cursor()
-        val = (request.args['id'],)
-        cursor.execute('SELECT * FROM flights WHERE flight_id = %s',val)
-        
-        column_names=[i[0] for i in cursor.description]
-        data=[]
-        for row in cursor.fetchall():
-            data.append(dict(zip(column_names,row)))
-        
-        return jsonify(data)
-        cursor.close()
+# fourth endpoint
+### HAPUS PENERBANGAN -- DELETE method --
+@app.route('/deleteFlights/<identifier>', methods=['DELETE'])
+def delete_flight(identifier):
+    cursor = mysql.connection.cursor()
+    if identifier.isdigit():
+        flight_id = int(identifier)
+        cursor.execute('DELETE FROM flights WHERE flight_id = %s', (flight_id,))
+    else:
+        arrival_country = identifier
+        cursor.execute('''DELETE FROM flights WHERE arrival_airport_code 
+                        IN 
+                        (SELECT airport_code FROM airports WHERE country = %s)''', (arrival_country,))
+    
+    mysql.connection.commit()
+    cursor.close()
+    return jsonify({"status_code": "200","status": "success", "message": "Flight(s) deleted successfully", "timestamp": datetime.now()}), 200
 
 
-if __name__=='__main__':
-    app.run(host='0.0.0.0', port=50,debug=True)
+
+
+# fifth endpoint
+### TAMBAH DATA BANDARA -- POST method --
+@app.route('/addairports', methods=['POST'])
+def add_airport():
+    data = request.json
+    airport_code = data.get('airport_code')
+    airport_name = data.get('airport_name')
+    city = data.get('city')
+    country = data.get('country')
+
+    if not airport_code or not airport_name or not city or not country:
+        return jsonify({"status_code": "400","status": "error", "message": "Data is incomplete", "timestamp": datetime.now()}), 400
+
+    cursor = mysql.connection.cursor()
+    cursor.execute("INSERT INTO airports (airport_code, airport_name, city, country) VALUES (%s, %s, %s, %s)", (airport_code, airport_name, city, country))
+    mysql.connection.commit()
+    cursor.close()
+
+    return jsonify({"status_code": "201","status": "add success", "message": "Airport data added successfully", "timestamp": datetime.now()}), 201
+
+
+
+
+if __name__ == '__main__':
+    app.run(debug=True)
