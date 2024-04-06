@@ -16,7 +16,7 @@ mysql = MySQL(app)
 
 
 # ### Authentication Logic
-valid_tokens = {"valid": "justin"}
+valid_tokens = {"valid": "safety"}
 def verify_token(token):
     return token == valid_tokens['valid']
 
@@ -27,9 +27,11 @@ def authenticate():
         return jsonify({"status_code": "401","status": "error", "message": "Unauthorized", "timestamp": datetime.now()}), 401
 
 
+
 @app.route('/')
 def method_name():
     return jsonify("Search for Your Flights Here!")
+
 
 
 # first endpoint
